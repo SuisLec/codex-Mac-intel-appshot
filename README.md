@@ -1,4 +1,4 @@
-# Codex Appshot Intel Mac Patch
+# codex-Mac-intel-appshot (Codex Appshot Intel Mac Patch)
 
 这是一个专门为 Intel 芯片 macOS 设备准备的 Codex Desktop "Appshots"（应用快照）功能修复与优化补丁。
 
