@@ -2,9 +2,18 @@
 
 这是一个专门为 Intel 芯片 macOS 设备准备的 Codex Desktop "Appshots"（应用快照）功能修复与优化补丁。
 
+## 效果对比
+
+### 修复前（架构不兼容导致报错）
+![无法附加应用快照](images/error.jpg)
+
+### 修复后（完美呈现带有图标、标题和无障碍上下文的快照）
+![成功运行](images/success.png)
+
 ## 背景
 
 官方版本的 Codex Desktop 在实现 Appshot 时，依赖了一个名为 `SkyComputerUseService` 的独立后台二进制服务和 Node.js 原生插件 `sky.node`。由于这些组件仅编译了 `arm64`（Apple Silicon）版本，在 Intel（x86_64）芯片的 Mac 上运行时会因为架构不兼容导致程序崩溃或静默失效，并在前端显示“无法附加应用快照”的错误横幅。
+
 
 本补丁通过重新实现窗口捕获、前台应用元数据获取和无障碍文本（AXText）提取等核心功能，完全在本地使用 Swift 编写并编译了替代工具，重新打补丁并封包了 JavaScript assets，使 Intel Mac 能够完美运行全部 Appshot 功能。
 
