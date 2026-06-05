@@ -231,7 +231,7 @@ def patch_worker_js(worker_path, helper_dir):
       transitionSpringResponse: null
     }};
   }}
-}}}}"""
+}}}};"""
     
     new_content = content[:start_idx] + mock_block + git_block + content[end_idx_full:]
     with open(worker_path, "w", encoding="utf-8") as f:
