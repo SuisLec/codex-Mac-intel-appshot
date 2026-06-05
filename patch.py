@@ -3,6 +3,7 @@ import sys
 import json
 import struct
 import shutil
+import fnmatch
 import tempfile
 import subprocess
 
@@ -83,10 +84,10 @@ def compile_swift_files(src_dir, dest_dir):
         out = os.path.join(dest_dir, file)
         subprocess.run(["swiftc", src, "-o", out], check=True)
 
-def find_file(directory, filename):
+def find_file(directory, pattern):
     for root, _, files in os.walk(directory):
         for f in files:
-            if f == filename:
+            if fnmatch.fnmatch(f, pattern):
                 return os.path.join(root, f)
     return None
 
@@ -216,7 +217,7 @@ def patch_worker_js(worker_path, helper_dir):
       if (stderr.includes("could not create image") || e.message.includes("could not create image")) {{
         try {{
           child_process.execSync('open "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture"');
-        } catch(openErr) {{}}
+        }} catch(openErr) {{}}
       }}
     }}
     
@@ -240,7 +241,6 @@ def patch_main_js(main_path, helper_dir):
     with open(main_path, "r", encoding="utf-8") as f:
         content = f.read()
         
-    target = '"computer-use-frontmost-window":async()=>process.platform===`darwin`?Wc():null,'
     replacement = f""""computer-use-frontmost-window":async()=>{{
   try {{
     const cp = require('child_process');
@@ -251,10 +251,19 @@ def patch_main_js(main_path, helper_dir):
   }}
 }},"""
 
-    if target not in content:
-        raise ValueError("Main frontmost-window target not found")
+    target = '"computer-use-frontmost-window":async()=>process.platform===`darwin`?Wc():null,'
+    if target in content:
+        new_content = content.replace(target, replacement)
+    else:
+        import re
+        pattern = r'"computer-use-frontmost-window":async\(\)=>\{.*?return null;\s*\}\s*\},'
+        new_content, count = re.subn(pattern, replacement, content, flags=re.DOTALL)
+        if count == 0:
+            pattern_generic = r'"computer-use-frontmost-window":async\(\)=>\{.*?\},'
+            new_content, count = re.subn(pattern_generic, replacement, content, flags=re.DOTALL)
+            if count == 0:
+                raise ValueError("Main frontmost-window target not found")
         
-    new_content = content.replace(target, replacement)
     with open(main_path, "w", encoding="utf-8") as f:
         f.write(new_content)
 
@@ -265,10 +274,13 @@ def patch_composer_js(composer_path):
     target = 're=r.map((e,t)=>{let i=e.imageDataUrl??e.imagePath;return i==null?null:(0,Q.jsx)(Is,{screenshotSrc:i,transitionSnapshotSrc:e.transitionSnapshotDataUrl,transitionSnapshotHeight:e.transitionSnapshotHeight,appName:e.appName,accessibilityText:e.axTree,windowTitle:e.windowTitle,previewEnabled:f,previewIndex:n.length+r.slice(0,t).filter(Sf).length,previewItems:m,onRemove:()=>l(t)},`${e.bundleIdentifier}-${e.imageName??t}`)})'
     replacement = 're=r.map((e,t)=>{let i=e.imageDataUrl??e.imagePath;return i==null?null:(0,Q.jsx)(Is,{screenshotSrc:i,transitionSnapshotSrc:e.transitionSnapshotDataUrl,transitionSnapshotHeight:e.transitionSnapshotHeight,appName:e.appName,accessibilityText:e.axTree,windowTitle:e.windowTitle,previewEnabled:f,previewIndex:n.length+r.slice(0,t).filter(Sf).length,previewItems:m,onRemove:()=>l(t),variant:"thread",appIconSrc:e.appIconDataUrl},`${e.bundleIdentifier}-${e.imageName??t}`)})'
     
-    if target not in content:
+    if target in content:
+        new_content = content.replace(target, replacement)
+    elif replacement in content:
+        return
+    else:
         raise ValueError("Composer rendering target not found")
         
-    new_content = content.replace(target, replacement)
     with open(composer_path, "w", encoding="utf-8") as f:
         f.write(new_content)
 
@@ -281,10 +293,11 @@ def main():
         sys.exit(1)
         
     script_dir = os.path.dirname(os.path.abspath(__file__))
-    helper_dir = script_dir
+    bin_dir = os.path.join(app_path, "Contents/Resources/bin")
+    os.makedirs(bin_dir, exist_ok=True)
     
     print("Compiling Swift helpers...")
-    compile_swift_files(script_dir, helper_dir)
+    compile_swift_files(script_dir, bin_dir)
     print("Swift helpers compiled successfully.")
     
     asar_path = os.path.join(app_path, "Contents/Resources/app.asar")
@@ -295,23 +308,31 @@ def main():
         extract_asar(asar_path, extract_meta)
         print("Extraction complete.")
         
-        worker_path = find_file(extract_meta, "worker.js")
-        main_path = find_file(extract_meta, "main-D1eypYtv.js")
+        worker_path = find_file(os.path.join(extract_meta, ".vite/build"), "worker.js")
+        main_path = find_file(os.path.join(extract_meta, ".vite/build"), "main-*.js")
         if not main_path:
-            main_path = find_file(extract_meta, "main.js")
-        composer_path = find_file(extract_meta, "composer-B7sGHJVq.js")
+            main_path = find_file(os.path.join(extract_meta, ".vite/build"), "main.js")
+            
+        composer_path = None
+        for root, _, files in os.walk(os.path.join(extract_meta, "webview")):
+            for f in files:
+                if f.startswith("composer-") and f.count("-") == 1 and f.endswith(".js"):
+                    composer_path = os.path.join(root, f)
+                    break
+            if composer_path:
+                break
         if not composer_path:
-            composer_path = find_file(extract_meta, "composer.js")
+            composer_path = find_file(os.path.join(extract_meta, "webview"), "composer.js")
             
         if not worker_path or not main_path or not composer_path:
             print("Error: Could not locate built JavaScript assets inside app.asar.")
             sys.exit(1)
             
         print("Patching worker.js...")
-        patch_worker_js(worker_path, helper_dir)
+        patch_worker_js(worker_path, bin_dir)
         
         print("Patching main.js...")
-        patch_main_js(main_path, helper_dir)
+        patch_main_js(main_path, bin_dir)
         
         print("Patching composer.js...")
         patch_composer_js(composer_path)

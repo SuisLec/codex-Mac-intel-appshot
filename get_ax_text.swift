@@ -62,6 +62,8 @@ func extractText(element: AXUIElement, depth: Int) {
             valueStr = (valueVal as! String).trimmingCharacters(in: .whitespacesAndNewlines)
         } else if let v = valueVal as? NSAttributedString {
             valueStr = v.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        } else if let num = valueVal as? NSNumber {
+            valueStr = num.stringValue
         }
     }
     
@@ -70,6 +72,20 @@ func extractText(element: AXUIElement, depth: Int) {
     if AXUIElementCopyAttributeValue(element, kAXDescriptionAttribute as CFString, &descVal) == .success,
        CFGetTypeID(descVal) == CFStringGetTypeID() {
         desc = (descVal as! String).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    var placeholder = ""
+    var placeholderVal: AnyObject?
+    if AXUIElementCopyAttributeValue(element, "AXPlaceholderValue" as CFString, &placeholderVal) == .success,
+       CFGetTypeID(placeholderVal) == CFStringGetTypeID() {
+        placeholder = (placeholderVal as! String).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+    
+    var help = ""
+    var helpVal: AnyObject?
+    if AXUIElementCopyAttributeValue(element, kAXHelpAttribute as CFString, &helpVal) == .success,
+       CFGetTypeID(helpVal) == CFStringGetTypeID() {
+        help = (helpVal as! String).trimmingCharacters(in: .whitespacesAndNewlines)
     }
     
     var line = ""
@@ -81,6 +97,12 @@ func extractText(element: AXUIElement, depth: Int) {
     }
     if !desc.isEmpty {
         line += "Desc: \(desc) "
+    }
+    if !placeholder.isEmpty {
+        line += "Placeholder: \(placeholder) "
+    }
+    if !help.isEmpty {
+        line += "Help: \(help) "
     }
     
     if !line.isEmpty {
@@ -107,7 +129,15 @@ for app in apps {
         let window = windowVal as! AXUIElement
         extractText(element: window, depth: 0)
     } else {
-        extractText(element: appElement, depth: 0)
+        var windowsVal: AnyObject?
+        if AXUIElementCopyAttributeValue(appElement, kAXWindowsAttribute as CFString, &windowsVal) == .success,
+           CFGetTypeID(windowsVal) == CFArrayGetTypeID(),
+           let windows = windowsVal as? [AXUIElement],
+           !windows.isEmpty {
+            extractText(element: windows[0], depth: 0)
+        } else {
+            extractText(element: appElement, depth: 0)
+        }
     }
 }
 
